@@ -1,0 +1,8 @@
+__pycache__/
+.kaggle/
+.venv/
+output/
+test/
+train/
+
+1_st.ipynb
