@@ -57,13 +57,11 @@ class ProcessImageAndAddCanny:
     
 
 # %%
-# data_dir = '/kaggle/input/ethz-cil-monocular-depth-estimation-2025'
-data_dir = r'C:\Users\timri\Documents\8th_MScETH\CIL\ethz-cil-monocular-depth-estimation-2025'
+data_dir = os.getcwd()
 train_dir = os.path.join(data_dir, 'train/train')
 test_dir = os.path.join(data_dir, 'test/test')
 train_list_file = os.path.join(data_dir, 'train_list.txt')
 test_list_file = os.path.join(data_dir, 'test_list.txt')
-# output_dir = '/kaggle/working/'
 results_dir = os.path.join(data_dir, 'output/results')
 predictions_dir = os.path.join(data_dir, 'output/predictions')
 
@@ -72,17 +70,17 @@ predictions_dir = os.path.join(data_dir, 'output/predictions')
 
 # %%
 TRAIN_FIRST_N = 600  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
+NUM_EPOCHS = 8
 BATCH_SIZE = 4
+USE_CANNY = False 
+NUM_WORKERS = 0
+
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-4
-NUM_EPOCHS = 8
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# DEVICE = torch.device('cpu')
 INPUT_SIZE = (426, 560)
-NUM_WORKERS = 0
 PERSISTENT_WORKERS = True if NUM_WORKERS > 0 else False
 PIN_MEMORY = True
-USE_CANNY = False  # Set to True to use Canny edge detection
 
 # %%
 print (f"Using device: {DEVICE}")
