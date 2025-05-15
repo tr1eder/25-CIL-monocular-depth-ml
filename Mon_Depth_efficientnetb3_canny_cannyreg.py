@@ -32,7 +32,6 @@ from torchvision.models import efficientnet_b3, EfficientNet_B3_Weights
 from PIL import Image
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import time
 from stopit import ThreadingTimeout as Timeout, threading_timeoutable as timeoutable  #doctest: +SKIP
 from canny_edge_detector import canny_edge_detector
 
@@ -74,13 +73,14 @@ predictions_dir = os.path.join(data_dir, 'output/predictions')
 # ### Hyperparameters
 
 # %%
-TRAIN_FIRST_N = 6000  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
-NUM_EPOCHS = 20
-LEARNING_RATE = 1e-4 * 1
-FIXED_FOR_FIRST_N = 2 # Set nr. of epochs to freeze the encoder
+TRAIN_FIRST_N = 0  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
+NUM_EPOCHS = 30
+LEARNING_RATE = 1e-4 * .1
+FIXED_FOR_FIRST_N = 4 # Set nr. of epochs to freeze the encoder
 BATCH_SIZE = 4
 USE_CANNY_REGULARIZER = True  # New flag to control edge-aware loss regularization
-CANNY_REG_WEIGHT = 4        # Weight for the Canny regularization term
+CANNY_REG_WEIGHT = 1        # Weight for the Canny regularization term
+CANNY_SMOOTHENING = [80, 5]
 NUM_WORKERS = 4
 
 WEIGHT_DECAY = 1e-4
@@ -219,24 +219,39 @@ class EfficientNetB3Depth(nn.Module):
         d = self.dec1(d)
         out = self.final_conv(d)
         return torch.sigmoid(out) * 10
+    
+def odd(x):
+    return int(x//2) * 2 + 1
 
 # Add custom edge-aware loss functions
 print_one = True
-def gradient_loss(pred_depth, canny_edge_map, device):
+def gradient_loss(pred_depth, canny_edge_map, device, factor):
     global print_one
-    if print_one:
-        print(f"Gradient loss: {pred_depth.shape}, {canny_edge_map.shape}")
-        plt.imshow(canny_edge_map[0].cpu().squeeze(), cmap='gray')
-        plt.title("Canny Edge Map")
-        plt.axis('off')
-        plt.show()
-        print_one = False
 
     # thicken the edges of canny_edge_map to 3 pixels
     thickened_canny = nn.functional.max_pool2d(canny_edge_map, kernel_size=3, stride=1, padding=1)
     # smoothen the edges
-    smoothened_canny = nn.functional.avg_pool2d(thickened_canny, kernel_size=3, stride=1, padding=1)
+    gauss_size = factor * CANNY_SMOOTHENING[1] + (1 - factor) * CANNY_SMOOTHENING[0]
+    # gaussian_kernel = transforms.GaussianBlur(kernel_size=(odd(gauss_size), odd(gauss_size)), sigma=gauss_size/5)
+    # smoothened_canny = gaussian_kernel(canny_edge_map)
+    smoothened_canny = nn.functional.avg_pool2d(thickened_canny, kernel_size=odd(gauss_size), stride=1, padding=odd(gauss_size)//2)
+    # smoothed_canny cv2.GaussianBlur(thickened_canny, (5, 5), 1)
+    # gaussian_kernel = torch.tensor([[1, 4, 7, 4, 1],
+    #                                  [4, 16, 26, 16, 4],
+    #                                  [7, 26, 41, 26, 7],
+    #                                  [4, 16, 26, 16, 4],
+    #                                  [1, 4, 7, 4, 1]], dtype=torch.float32, device=canny_edge_map.device)
+    # gaussian_kernel /= gaussian_kernel.sum()
+    # gaussian_kernel = gaussian_kernel.view(1, 1, 5, 5)  # Reshape to 4D for convolution
+    # smoothened_canny = nn.functional.conv2d(thickened_canny, gaussian_kernel, padding=2)
     # canny_edge_map_resized = nn.functional.interpolate(canny_edge_map, size=pred_depth.shape[-2:], mode='nearest')
+    if print_one:
+        print(f"Gradient loss: {pred_depth.shape}, {canny_edge_map.shape}")
+        plt.imshow(smoothened_canny[0].cpu().squeeze(), cmap='gray')
+        plt.title("Canny Edge Map")
+        plt.axis('off')
+        plt.show()
+        print_one = False
     
     sobel_x_kernel = torch.tensor([[-1,0,1],[-2,0,2],[-1,0,1]], dtype=torch.float32, device=device).reshape(1,1,3,3)
     sobel_y_kernel = torch.tensor([[-1,-2,-1],[0,0,0],[1,2,1]], dtype=torch.float32, device=device).reshape(1,1,3,3)
@@ -249,7 +264,7 @@ def gradient_loss(pred_depth, canny_edge_map, device):
     weights = (1-smoothened_canny)
     loss = torch.mean(torch.abs(depth_grad_x) * weights) + torch.mean(torch.abs(depth_grad_y) * weights)
     good_loss = torch.mean(1 - torch.abs(depth_grad_x * (1-weights))) + torch.mean(1 - torch.abs(depth_grad_y * (1-weights)))
-    loss = loss + 2 * good_loss
+    loss = loss + .5 * good_loss
     return loss
 
 class CombinedLoss(nn.Module):
@@ -266,7 +281,7 @@ class CombinedLoss(nn.Module):
             canny_edges_on_device = canny_edges.to(device)
             factor = current_iter / NUM_EPOCHS
             # print (f"Factor: {factor}")
-            edge_loss = gradient_loss(predictions, canny_edges_on_device, device) * factor
+            edge_loss = gradient_loss(predictions, canny_edges_on_device, device, factor) * factor
             total_loss = reconstruction_loss + self.canny_reg_weight * edge_loss
             edge_loss_val = edge_loss
         return total_loss, reconstruction_loss, edge_loss_val

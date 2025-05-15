@@ -7,3 +7,4 @@ train/
 
 1_st.ipynb
 predictions*.csv
+tests.py
