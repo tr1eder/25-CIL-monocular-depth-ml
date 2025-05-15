@@ -6,8 +6,8 @@ import zlib
 from tqdm import tqdm
 
 # Path definitions
-data_root = '<Path to data>'
-predictions_dir = os.path.join(data_root, 'predictions')
+data_root = os.getcwd()
+predictions_dir = os.path.join(data_root, 'output/predictions')
 test_list_file = os.path.join(data_root, 'test_list.txt')
 output_csv = os.path.join(data_root, 'predictions.csv')
 
