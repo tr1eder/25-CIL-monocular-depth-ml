@@ -4,12 +4,27 @@ import pandas as pd
 import base64
 import zlib
 from tqdm import tqdm
+from enum import Enum
+import argparse
+
+
+class ENV(Enum):
+    STUDENTCLUSTER = 1
+    LOCAL = 2
+
+RUN_ON = ENV.LOCAL  # or RUNON.STUDENTCLUSTER, depending on your environment
+data_dir = os.getcwd() if RUN_ON == ENV.LOCAL else '/work/scratch/timrieder/cil_monocular_depth'
+current_dir = os.getcwd()
+parser = argparse.ArgumentParser(description="Create prediction CSV.")
+parser.add_argument('-o', '--output_folder', type=str, default='output', help='Output folder name')
+args, _ = parser.parse_known_args()
+output_folder = args.output_folder
 
 # Path definitions
-data_root = os.getcwd()
-predictions_dir = os.path.join(data_root, 'output/predictions')
-test_list_file = os.path.join(data_root, 'test_list.txt')
-output_csv = os.path.join(data_root, 'predictions.csv')
+# data_root = os.getcwd()
+predictions_dir = os.path.join(current_dir, output_folder, 'predictions')
+test_list_file = os.path.join(data_dir, 'test_list.txt')
+output_csv = os.path.join(current_dir, output_folder, 'predictions.csv')
 
 def compress_depth_values(depth_values):
     # Convert depth values to bytes

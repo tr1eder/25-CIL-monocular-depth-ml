@@ -28,7 +28,6 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from torchvision.models import efficientnet_b3, EfficientNet_B3_Weights
 from PIL import Image
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -63,7 +62,7 @@ class GenerateCannyEdges:
     
 def load_params():
     import argparse
-    parser = argparse.ArgumentParser(description='Monocular Depth Estimation with EfficientNet-B3')
+    parser = argparse.ArgumentParser(description='Monocular Depth Estimation with MiDaS')
 
     # parser.add_argument('-env', '--env', type=str, default='local', help='Environment: local or studentcluster', required=False)
     parser.add_argument('-n', '--train_first_n', type=int, help='Number of training samples to use (0 for all)', required=False)
@@ -105,7 +104,7 @@ def load_params():
     print(f"Training with {TRAIN_FIRST_N} samples, {NUM_EPOCHS} epochs, learning rate {LEARNING_RATE}, fixed for first {FIXED_FOR_FIRST_N} epochs")
     print(f"USE_CANNY_REGULARIZER={USE_CANNY_REGULARIZER}, CANNY_REG_WEIGHT={CANNY_REG_WEIGHT}, CANNY_INC={CANNY_INC}, CANNY_SMOOTHENING={CANNY_SMOOTHENING}, CANNY_GOODLOSS_WEIGHT={CANNY_GOODLOSS_WEIGHT}")
 
-    output_dir = os.getcwd()+f"eb3-cr-n{TRAIN_FIRST_N}-e{NUM_EPOCHS}-lr{LEARNING_RATE}-fff{FIXED_FOR_FIRST_N}-crw{CANNY_REG_WEIGHT}-crinc{CANNY_INC}-csg{CANNY_SMOOTHENING[0]}-{CANNY_SMOOTHENING[1]}-cglw{CANNY_GOODLOSS_WEIGHT}"
+    output_dir = os.getcwd()+f"midas-cr-n{TRAIN_FIRST_N}-e{NUM_EPOCHS}-lr{LEARNING_RATE}-fff{FIXED_FOR_FIRST_N}-crw{CANNY_REG_WEIGHT}-crinc{CANNY_INC}-csg{CANNY_SMOOTHENING[0]}-{CANNY_SMOOTHENING[1]}-cglw{CANNY_GOODLOSS_WEIGHT}"
 
 # %%
 class ENV(Enum):
@@ -126,19 +125,19 @@ predictions_dir = os.path.join(output_dir, 'output/predictions')
 # ### Hyperparameters
 TRAIN_FIRST_N = 100  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
 NUM_EPOCHS = 1
-LEARNING_RATE = 1e-4 * .4
-FIXED_FOR_FIRST_N = 5 # Set nr. of epochs to freeze the encoder
+LEARNING_RATE = 1e-4 * 1
+FIXED_FOR_FIRST_N = 0 # Set nr. of epochs to freeze the encoder
 BATCH_SIZE = 4
 USE_CANNY_REGULARIZER = True  # New flag to control edge-aware loss regularization
 CANNY_REG_WEIGHT = 1        # Weight for the Canny regularization term
 CANNY_INC = False
 CANNY_SMOOTHENING = [80, 5]
 CANNY_GOODLOSS_WEIGHT = .5
-NUM_WORKERS = 0
+NUM_WORKERS = 1
 
 WEIGHT_DECAY = 1e-4
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-INPUT_SIZE = (426, 560)
+INPUT_SIZE = (426, 560)  # Adjusted to user's requirement
 PERSISTENT_WORKERS = True if NUM_WORKERS > 0 else False
 PIN_MEMORY = True
 
@@ -189,8 +188,6 @@ class DepthDataset(Dataset):
             pil_rgb_image = Image.open(rgb_path).convert('RGB')
             depth = np.load(depth_path).astype(np.float32)
             depth = torch.from_numpy(depth)
-            print (f"Type and shape of depth: {type(depth)}, {depth.shape}")
-            print (f"Type and shape of pil_rgb_image: {type(pil_rgb_image)}, {pil_rgb_image.size}")
             rgb_tensor_transformed = self.transform(pil_rgb_image) if self.transform else transforms.ToTensor()(pil_rgb_image)
             if self.target_transform:
                 depth = self.target_transform(depth)
@@ -225,56 +222,67 @@ class UNetBlock(nn.Module):
         return x
 
 # %%
-class EfficientNetB3Depth(nn.Module):
-    def __init__(self):
-        super(EfficientNetB3Depth, self).__init__()
-        weights = EfficientNet_B3_Weights.IMAGENET1K_V1
-        base_model = efficientnet_b3(weights=weights)
-        # Modify first conv to accept 4 channels (RGB + Canny)
-        original_conv = base_model.features[0][0]
-        new_conv = nn.Conv2d(4, original_conv.out_channels,
-                             kernel_size=original_conv.kernel_size,
-                             stride=original_conv.stride,
-                             padding=original_conv.padding,
-                             bias=(original_conv.bias is not None))
-        # new_conv.weight.data[:, :3, :, :] = original_conv.weight.data.clone()
-        # new_conv.weight.data[:, 3, :, :] = original_conv.weight.data.mean(dim=1)
-        with torch.no_grad():
-            new_conv.weight[:, :3] = original_conv.weight.data.clone()
-            new_conv.weight[:, 3:] = 0.0
 
-        base_model.features[0][0] = new_conv
-        self.encoder = base_model.features
-        self.decoder_conv_initial = nn.Conv2d(1536, 512, kernel_size=1)
-        self.upconv5 = nn.ConvTranspose2d(512, 512, kernel_size=2, stride=2)
-        self.dec5 = UNetBlock(512, 256)
-        self.upconv4 = nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2)
-        self.dec4 = UNetBlock(256, 128)
-        self.upconv3 = nn.ConvTranspose2d(128, 128, kernel_size=2, stride=2)
-        self.dec3 = UNetBlock(128, 64)
-        self.upconv2 = nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2)
-        self.dec2 = UNetBlock(64, 32)
-        self.upconv1 = nn.ConvTranspose2d(32, 32, kernel_size=2, stride=2)
-        self.dec1 = UNetBlock(32, 16)
-        self.final_conv = nn.Conv2d(16, 1, kernel_size=1)
+class MiDaSDepth(nn.Module):
+    def __init__(self):
+        super(MiDaSDepth, self).__init__()
+        # Load MiDaS model
+        self.midas = torch.hub.load("intel-isl/MiDaS", "MiDaS")
+        
+        # Find the first convolution layer in the backbone
+        # MiDaS uses different backbone architectures, need to find the first conv layer
+        first_conv = None
+        first_conv_name = None
+        for name, module in self.midas.named_modules(): # type: ignore
+            if isinstance(module, nn.Conv2d) and module.in_channels == 3:
+                first_conv = module
+                first_conv_name = name
+                break
+        
+        if first_conv is None:
+            raise RuntimeError("Could not find first convolution layer in MiDaS model")
+        
+        # Create new conv layer with 4 input channels (RGB + Canny)
+        new_conv = nn.Conv2d(4, first_conv.out_channels,
+                             kernel_size=first_conv.kernel_size, # type: ignore
+                             stride=first_conv.stride,# type: ignore
+                             padding=first_conv.padding,# type: ignore
+                             bias=(first_conv.bias is not None))
+        
+        # Initialize weights: copy RGB channels, zero initialize Canny channel
+        with torch.no_grad():
+            new_conv.weight[:, :3] = first_conv.weight.data.clone()
+            new_conv.weight[:, 3:] = 0.0
+            if first_conv.bias is not None:
+                new_conv.bias = first_conv.bias.clone()
+        
+        # Replace the first conv layer using the found path
+        parent_module = self.midas
+        path_parts = first_conv_name.split('.') # type: ignore
+        for part in path_parts[:-1]:
+            parent_module = getattr(parent_module, part)
+        setattr(parent_module, path_parts[-1], new_conv)
+        
     def forward(self, x):
-        enc_out = self.encoder(x)
-        d = self.decoder_conv_initial(enc_out)
-        d = self.upconv5(d)
-        d = self.dec5(d)
-        d = self.upconv4(d)
-        d = self.dec4(d)
-        d = self.upconv3(d)
-        d = self.dec3(d)
-        d = self.upconv2(d)
-        d = self.dec2(d)
-        d = self.upconv1(d)
-        if d.shape[2:] != x.shape[2:]:
-            d = nn.functional.interpolate(d, size=x.shape[2:], mode='bilinear', align_corners=True)
-        d = self.dec1(d)
-        out = self.final_conv(d)
-        return torch.sigmoid(out) * 10
-    
+        # Ensure input is the right size for MiDaS (e.g. 384x384)
+        # Original input x will be INPUT_SIZE (426, 560)
+        # We resize it for MiDaS compatibility
+        if x.shape[-2:] != (384, 384): # This will be true
+            x_resized_for_midas = nn.functional.interpolate(x, size=(384, 384), mode='bilinear', align_corners=True)
+        else:
+            x_resized_for_midas = x
+        
+        # MiDaS returns relative depth at (384,384)
+        depth_pred = self.midas(x_resized_for_midas) # type: ignore
+        
+        # Scale and normalize the output
+        depth_pred = torch.relu(depth_pred)  # Ensure positive values
+        depth_pred = depth_pred * 10.0  # Scale to reasonable depth range
+        
+        # Output is (B, 1, 384, 384)
+        return depth_pred.unsqueeze(1) if len(depth_pred.shape) == 3 else depth_pred
+
+# %%
 def odd(x):
     return int(x//2) * 2 + 1
 
@@ -354,14 +362,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         print(f"Epoch {epoch+1}/{num_epochs}")
         # Freeze encoder for first epoch only, unfreeze from second epoch onward.
         if epoch < FIXED_FOR_FIRST_N:
-            # For DataParallel, access encoder via model.module.encoder.
-            for param in model.module.encoder.parameters():
+            # For DataParallel, access midas backbone parameters
+            for param in model.module.midas.parameters():
                 param.requires_grad = False
-            print(f"Encoder frozen for epoch {epoch+1}.")
+            print(f"MiDaS backbone frozen for epoch {epoch+1}.")
         elif epoch == FIXED_FOR_FIRST_N:
-            for param in model.module.encoder.parameters():
+            for param in model.module.midas.parameters():
                 param.requires_grad = True
-            print(f"Encoder unfrozen from epoch {epoch+1}.")
+            print(f"MiDaS backbone unfrozen from epoch {epoch+1}.")
+        
         model.train()
         train_loss = 0.0
         train_recon_loss_epoch = 0.0
@@ -372,9 +381,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             else:
                 inputs, targets, _ = data_items
                 canny_edges = None
-            inputs, targets = inputs.to(device), targets.to(device)
+            inputs, targets = inputs.to(device), targets.to(device) # targets are at INPUT_SIZE (426,560)
             optimizer.zero_grad()
-            outputs = model(inputs)
+            outputs = model(inputs) # outputs are at MiDaS internal resolution (e.g., 384,384)
+            
+            # Resize model outputs to match target size before loss calculation
+            outputs = nn.functional.interpolate(outputs, size=targets.shape[-2:], mode='bilinear', align_corners=True)
+            
             loss, recon_loss, edge_loss = criterion(outputs, targets, canny_edges, device, epoch)
             loss.backward()
             optimizer.step()
@@ -402,8 +415,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 else:
                     inputs, targets, _ = data_items
                     canny_edges = None
-                inputs, targets = inputs.to(device), targets.to(device)
-                outputs = model(inputs)
+                inputs, targets = inputs.to(device), targets.to(device) # targets are at INPUT_SIZE (426,560)
+                outputs = model(inputs) # outputs are at MiDaS internal resolution (e.g., 384,384)
+
+                # Resize model outputs to match target size before loss calculation for validation
+                outputs = nn.functional.interpolate(outputs, size=targets.shape[-2:], mode='bilinear', align_corners=True)
+                
                 loss, recon_loss, edge_loss = criterion(outputs, targets, canny_edges, device, epoch)
                 val_loss += loss.item() * inputs.size(0)
                 val_recon_loss_epoch += recon_loss.item() * inputs.size(0)
@@ -567,7 +584,7 @@ def generate_test_predictions(model, test_loader, device):
             outputs = model(inputs)
             outputs = nn.functional.interpolate(
                 outputs,
-                size=(426, 560),
+                size=(426, 560),  # Original target size
                 mode='bilinear',
                 align_corners=True
             )
@@ -586,6 +603,7 @@ def main():
     load_params()
     ensure_dir(results_dir)
     ensure_dir(predictions_dir)
+    
     train_rgb_transform = transforms.Compose([
         transforms.Resize(INPUT_SIZE),
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
@@ -658,7 +676,7 @@ def main():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         print(f"Total GPU memory: {torch.cuda.get_device_properties(0).total_memory/1e9:.2f} GB")
         print(f"Initially allocated: {torch.cuda.memory_allocated(0)/1e9:.2f} GB")
-    model = EfficientNetB3Depth()
+    model = MiDaSDepth()
     model = nn.DataParallel(model)
     model = model.to(DEVICE)
     print(f"Using device: {DEVICE}")

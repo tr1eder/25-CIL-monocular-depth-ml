@@ -2,9 +2,11 @@ __pycache__/
 .kaggle/
 .venv/
 output/
+midas_minimal_*
 test/
 train/
 
 1_st.ipynb
 predictions*.csv
 tests.py
+midas_depth_prediction.png
