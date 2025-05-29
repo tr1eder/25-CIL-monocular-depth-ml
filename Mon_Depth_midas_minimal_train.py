@@ -86,10 +86,10 @@ predictions_dir = os.path.join(output_dir, 'predictions') # predictions_dir will
 
 # %% [markdown]
 # ### Hyperparameters
-TRAIN_FIRST_N = 10000  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
-NUM_EPOCHS = 2
-LEARNING_RATE = 1e-4 * .3
-FIXED_FOR_FIRST_N = 1 # Set nr. of epochs to freeze the encoder
+TRAIN_FIRST_N = 0  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
+NUM_EPOCHS = 4
+LEARNING_RATE = 1e-4 * .5
+FIXED_FOR_FIRST_N = 2 # Set nr. of epochs to freeze the encoder
 BATCH_SIZE = 4
 NUM_WORKERS = 4
 
@@ -109,9 +109,9 @@ predictions_dir = os.path.join(output_dir, 'predictions')
 
 # %%
 print (f"Using device: {DEVICE}")
-print (f"Output directory: {output_dir}")
-print (f"Results directory: {results_dir}")
-print (f"Predictions directory: {predictions_dir}")
+# print (f"Output directory: {output_dir}")
+# print (f"Results directory: {results_dir}")
+# print (f"Predictions directory: {predictions_dir}")
 
 # %% [markdown]
 # ### Helper functions
@@ -230,6 +230,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     train_losses = []
     val_losses = []
     sample_batch = None  # For storing a batch for visualization
+    scaler = torch.amp.GradScaler() if torch.cuda.is_available() else None # type: ignore
+
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
         # Freeze encoder for first epoch only, unfreeze from second epoch onward.
@@ -259,14 +261,29 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             inputs, targets, _ = data_items # _ was filenames
             inputs, targets = inputs.to(device), targets.to(device) # targets are at INPUT_SIZE (426,560)
             optimizer.zero_grad()
-            outputs = model(inputs) # outputs are at MiDaS internal resolution (e.g., 384,384)
-            
-            # Resize model outputs to match target size before loss calculation
-            outputs = nn.functional.interpolate(outputs, size=targets.shape[-2:], mode='bilinear', align_corners=True)
-            
-            loss, recon_loss, edge_loss = criterion(outputs, targets) # Removed canny_edges, device, epoch
-            loss.backward()
-            optimizer.step()
+
+            if scaler is not None:
+                with torch.amp.autocast(device_type='cuda', dtype=torch.float16): # type: ignore
+                    outputs = model(inputs)
+                    outputs = nn.functional.interpolate(outputs, size=targets.shape[-2:], mode='bilinear', align_corners=True)
+                    loss, recon_loss, edge_loss = criterion(outputs, targets)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(inputs)
+                outputs = nn.functional.interpolate(outputs, size=targets.shape[-2:], mode='bilinear', align_corners=True)
+                loss, recon_loss, edge_loss = criterion(outputs, targets)
+                loss.backward()
+                optimizer.step()
+
+            # outputs = model(inputs) # outputs are at MiDaS internal resolution (e.g., 384,384)
+            # # Resize model outputs to match target size before loss calculation
+            # outputs = nn.functional.interpolate(outputs, size=targets.shape[-2:], mode='bilinear', align_corners=True)
+            # loss, recon_loss, edge_loss = criterion(outputs, targets) # Removed canny_edges, device, epoch
+            # loss.backward()
+            # optimizer.step()
+
             train_loss += loss.item() * inputs.size(0)
             train_recon_loss_epoch += recon_loss.item() * inputs.size(0)
             # if use_canny_regularizer_flag: # Removed Canny

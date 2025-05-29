@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 output/
 midas_minimal_*
+mon_depth_enb3_*
 test/
 train/
 
