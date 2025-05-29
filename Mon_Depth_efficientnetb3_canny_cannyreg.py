@@ -189,8 +189,8 @@ class DepthDataset(Dataset):
             pil_rgb_image = Image.open(rgb_path).convert('RGB')
             depth = np.load(depth_path).astype(np.float32)
             depth = torch.from_numpy(depth)
-            print (f"Type and shape of depth: {type(depth)}, {depth.shape}")
-            print (f"Type and shape of pil_rgb_image: {type(pil_rgb_image)}, {pil_rgb_image.size}")
+            # print (f"Type and shape of depth: {type(depth)}, {depth.shape}")
+            # print (f"Type and shape of pil_rgb_image: {type(pil_rgb_image)}, {pil_rgb_image.size}")
             rgb_tensor_transformed = self.transform(pil_rgb_image) if self.transform else transforms.ToTensor()(pil_rgb_image)
             if self.target_transform:
                 depth = self.target_transform(depth)
@@ -447,7 +447,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         if True or val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), os.path.join(results_dir, 'best_model.pth'))
-            print(f"New best (ANY!!!!!!!!!!!!!) model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
+            print(f"New best model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
+            # print(f"New best (ANY!!!!!!!!!!!!!) model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
     print(f"\nBest model with validation loss: {best_val_loss:.4f}")
     model.load_state_dict(torch.load(os.path.join(results_dir, 'best_model.pth')))
     return model

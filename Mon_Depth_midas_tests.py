@@ -32,15 +32,15 @@ def siRMSE(pred, target, idx, text):
 
 # Load MiDaS model
 midas = torch.hub.load("intel-isl/MiDaS", "DPT_Hybrid")  # or "DPT_Large"
-midas.eval()
+midas.eval() # type: ignore
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-midas.to(device)
+midas.to(device) # type: ignore
 
 # Load transforms
 midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
 
 # For DPT models
-transform = midas_transforms.dpt_transform
+transform = midas_transforms.dpt_transform # type: ignore
 
 # Load and resize image to 426x560
 img = Image.open("train/train/sample_000000_rgb.png").convert("RGB")
@@ -59,7 +59,7 @@ input_tensor = transform(img_np).to(device)
 
 # Inference
 with torch.no_grad():
-    prediction = midas(input_tensor)
+    prediction = midas(input_tensor) # type: ignore
     prediction = torch.nn.functional.interpolate(
         prediction.unsqueeze(1),
         size=(426, 560),  # match original
