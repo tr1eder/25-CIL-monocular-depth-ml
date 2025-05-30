@@ -93,9 +93,9 @@ data_dir = os.getcwd() if RUN_ON == ENV.LOCAL else '/work/scratch/timrieder/cil_
 
 # %% [markdown]
 # ### Hyperparameters
-TRAIN_FIRST_N = 0  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
-NUM_EPOCHS = 10
-LEARNING_RATE = 1e-4 * .3
+TRAIN_FIRST_N = 4000  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
+NUM_EPOCHS = 3
+LEARNING_RATE = 1e-4 * .2
 FIXED_DEC_FOR_FIRST_N = 1
 FIXED_ENC_FOR_FIRST_N = max(2, FIXED_DEC_FOR_FIRST_N) # Set nr. of epochs to freeze the encoder
 BATCH_SIZE = 4
@@ -326,8 +326,8 @@ class MiDaSDepth(nn.Module):
     def __init__(self):
         super().__init__()
         # Load pretrained MiDaS model and transform
-        self.midas_model = torch.hub.load("intel-isl/MiDaS", "DPT_Hybrid")
-        # self.midas_model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+        # self.midas_model = torch.hub.load("intel-isl/MiDaS", "DPT_Hybrid")
+        self.midas_model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
         midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
         self.midas_transform = midas_transforms.dpt_transform # type: ignore
 
