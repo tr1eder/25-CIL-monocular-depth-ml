@@ -94,16 +94,16 @@ data_dir = os.getcwd() if RUN_ON == ENV.LOCAL else '/work/scratch/timrieder/cil_
 # %% [markdown]
 # ### Hyperparameters
 TRAIN_FIRST_N = 0  # Set to 0 to use all data, or set to a positive integer to limit the number of samples
-NUM_EPOCHS = 16
-LEARNING_RATE = 1e-4 * .5
-FIXED_DEC_FOR_FIRST_N = 3
-FIXED_ENC_FOR_FIRST_N = max(5, FIXED_DEC_FOR_FIRST_N) # Set nr. of epochs to freeze the encoder
+NUM_EPOCHS = 10
+LEARNING_RATE = 1e-4 * .3
+FIXED_DEC_FOR_FIRST_N = 1
+FIXED_ENC_FOR_FIRST_N = max(2, FIXED_DEC_FOR_FIRST_N) # Set nr. of epochs to freeze the encoder
 BATCH_SIZE = 4
 USE_CANNY_REGULARIZER = True  # Set to False to disable Canny edge regularization
-CANNY_REG_WEIGHT = .3  # Weight for the Canny edge regularization loss
+CANNY_REG_WEIGHT = .1  # Weight for the Canny edge regularization loss
 CANNY_SMOOTHENING = [80, 5]
 CANNY_GOODLOSS_WEIGHT = .5
-NUM_WORKERS = 0
+NUM_WORKERS = 4
 
 WEIGHT_DECAY = 1e-4
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -327,6 +327,7 @@ class MiDaSDepth(nn.Module):
         super().__init__()
         # Load pretrained MiDaS model and transform
         self.midas_model = torch.hub.load("intel-isl/MiDaS", "DPT_Hybrid")
+        # self.midas_model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
         midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
         self.midas_transform = midas_transforms.dpt_transform # type: ignore
 
@@ -409,8 +410,8 @@ def gradient_loss(pred_depth, canny_edge_map, device, factor):
     if gauss_size < 3 or gauss_size % 2 != 1: 
         raise ValueError(f"Invalid gauss_size: {gauss_size}. It must be an odd integer >= 3.")
     # print if pred_depth contains nans
-    if torch.isnan(pred_depth).any():
-        print("Warning: pred_depth contains NaNs.")
+    # if torch.isnan(pred_depth).any():
+    #     print("Warning: pred_depth contains NaNs.")
 
     thickened_canny = nn.functional.max_pool2d(canny_edge_map, kernel_size=3, stride=1, padding=1) # thicken
     smoothened_canny = nn.functional.avg_pool2d(thickened_canny, kernel_size=gauss_size, stride=1, padding=gauss_size//2) # smoothen
@@ -801,18 +802,19 @@ def generate_test_predictions(model, test_loader, device):
 # # Putting it all together
 
 # %%
+def target_transform(depth):
+    depth = torch.nn.functional.interpolate(
+        depth.unsqueeze(0).unsqueeze(0),
+        size=INPUT_SIZE,
+        mode='bilinear',
+        align_corners=True
+    ).squeeze()
+    depth = depth.unsqueeze(0)
+    return depth
+
 def main():
 
     
-    def target_transform(depth):
-        depth = torch.nn.functional.interpolate(
-            depth.unsqueeze(0).unsqueeze(0),
-            size=INPUT_SIZE,
-            mode='bilinear',
-            align_corners=True
-        ).squeeze()
-        depth = depth.unsqueeze(0)
-        return depth
 
     # def target_transform(depth):
     #     # depth is a PIL Image or tensor, convert to PIL if needed
